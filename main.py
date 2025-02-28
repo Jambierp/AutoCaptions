@@ -1,147 +1,94 @@
-import sys, os
-sys.path.append(os.path.dirname(os.path.realpath(__file__)))  # Allow local imports from any working directory
-from log import console, log
-
-log.progress("Loading modules...")
-
-import tkinter
-from tkinter import ttk, ACTIVE, DISABLED, filedialog
-import sv_ttk
+#!/usr/bin/env python3
+import sys
+import os
 from pathlib import Path
 import subprocess
 
 import premiere_convert
 from transcribe import transcribe_to_srt
+from log import console, log  # assuming these provide console logging
 
-DIR = sys.path[0]
+def prompt_input_file():
+    """Prompt user for an input file and verify it exists."""
+    while True:
+        input_file = input("Enter the path to an Audio or Video file to be transcribed: ").strip()
+        if not input_file:
+            print("No file entered. Please try again.")
+            continue
+        if not os.path.isfile(input_file):
+            print("File does not exist. Please try again.")
+            continue
+        return input_file
 
-def select_file():
-    filetypes = [
-        ("Audio Files", "*.wav;*.mp3;*.flac;*.aac;*.m4a"),
-        ("Video Files", "*.mp4;*.mov;*.avi;*.mkv;*.wmv"),
-        ('All files', '*.*')
-    ]
+def prompt_output_file(input_filepath):
+    """Determine the output file location with a default based on the input file."""
+    path = Path(input_filepath)
+    default_filename = path.stem + ".xml"
+    default_path = path.parent / default_filename
+    print(f"Enter the path to save the output Premiere Pro XML sequence file.")
+    print(f"Press Enter to use the default: {default_path}")
+    output_file = input("Output file path: ").strip()
+    if not output_file:
+        output_file = str(default_path)
+    return output_file
 
-    filename_ask = filedialog.askopenfilename(
-        title='Select any Audio or Video file to be transcribed',
-        filetypes=filetypes)
+def prompt_configuration():
+    """Ask the user for configuration details, with defaults if left blank."""
+    print("\nConfiguration:")
+    model = input("Enter Whisper model (small/medium/large) [default: small]: ").strip() or "small"
     
-    if filename_ask == "":  # if dialog closed with cancel
-        return
-    
-    input_file_variable.set(filename_ask)
-    feedback_variable.set("")
-    start_button["state"] = ACTIVE
-    start_button.focus()
+    split_gap_input = input("Enter split silence (s) [default: 0.5]: ").strip()
+    try:
+        split_gap = float(split_gap_input) if split_gap_input else 0.5
+    except ValueError:
+        print("Invalid value for split silence. Using default 0.5.")
+        split_gap = 0.5
 
-def file_save():
-    filetypes = (
-        ('Premiere Pro Sequence file', '*.xml'),
-        ('All files', '*.*')
-    )
-    
-    path = Path(input_file_variable.get())
-    directory = path.parent
-    filename = path.stem + ".xml"
-    
-    f = filedialog.asksaveasfile(mode='w', title="Save sequence file", filetypes=filetypes, initialdir=directory, initialfile=filename)
-    if f is None:  # if dialog closed with cancel
-        return
-    f.close()
-    
-    input_filepath = input_file_variable.get()
-    
-    start_button["state"] = DISABLED
-    feedback_variable.set("Running... (see console for progress)")
-    window.update()
-    
-    # Get configuration
-    config_model = model_variable.get()
-    config_split_gap = float(split_gap_variable.get())
-    config_split_length = int(split_length_variable.get())
+    split_length_input = input("Enter split length (chars) [default: 20]: ").strip()
+    try:
+        split_length = int(split_length_input) if split_length_input else 20
+    except ValueError:
+        print("Invalid value for split length. Using default 20.")
+        split_length = 20
 
-    # Transcribe audio using Whisper
-    srt_filepath = transcribe_to_srt(input_filepath, 
-                                     model_name=config_model,
-                                     split_gap=config_split_gap,
-                                     split_length=config_split_length)
+    return model, split_gap, split_length
 
-    # Convert SRT to Premiere XML text layers
-    outfile = srt_to_xml(srt_filepath, f.name)
-    
-    # Open file in Explorer
-    if sys.platform == "win32":
-        open_file_in_explorer(f)
-    
-    feedback_variable.set("Done! Saved to " + outfile)
-    input_file_variable.set("")
-
-# Convert SRT to Premiere Pro XML Sequence as Text Layers
 def srt_to_xml(srt_filename, outfile):
-    with console.status(f"Converting {srt_filename} to Premiere Pro XML...", spinner="arc", spinner_style="blue"):
-        premiere_xml = premiere_convert.srt_to_xml(srt_filename)
-
-        # Write to file
-        outfile = outfile + ".xml" if not outfile.endswith(".xml") else outfile
-
-        with open(outfile, "w") as f:
-            f.write(premiere_xml)
-    
+    """Convert the SRT file to Premiere Pro XML and save it."""
+    print(f"\nConverting {srt_filename} to Premiere Pro XML...")
+    premiere_xml = premiere_convert.srt_to_xml(srt_filename)
+    # Ensure the output filename ends with .xml
+    if not outfile.endswith(".xml"):
+        outfile += ".xml"
+    with open(outfile, "w") as f:
+        f.write(premiere_xml)
     log.success(f"Saved Premiere Pro XML to {outfile!r}")
     return outfile
 
-def open_file_in_explorer(f):
-    filename = f.name.replace('/', '\\')
-    subprocess.Popen(f'explorer /select,"{filename}"')
+def main():
+    log.progress("Loading modules...")
 
+    # Prompt user for necessary file paths and configuration.
+    input_filepath = prompt_input_file()
+    output_filepath = prompt_output_file(input_filepath)
+    model, split_gap, split_length = prompt_configuration()
 
-window = tkinter.Tk()
-window.title('Transcribe Audio to Premiere Pro XML')
+    log.progress("\nStarting transcription and conversion (check console for progress)...")
+    
+    # Run transcription
+    srt_filepath = transcribe_to_srt(
+        input_filepath, 
+        model_name=model,
+        split_gap=split_gap,
+        split_length=split_length
+    )
 
-frame = ttk.Frame(window)
-frame.pack()
+    # Convert SRT to Premiere Pro XML
+    outfile = srt_to_xml(srt_filepath, output_filepath)
 
-input_file_button = ttk.Button(frame, text="Select input file", command=select_file)
-input_file_button.grid(row=0, column=0, sticky="news", padx=20, pady=10)
-input_file_button.focus()
-input_file_variable = tkinter.StringVar(window)
-input_file_label = ttk.Label(frame, text="No file selected", textvariable=input_file_variable)
-input_file_label.grid(row=1, column=0, sticky="news", padx=20)
+    print(f"\nDone! Premiere Pro XML file saved to: {outfile}")
+    # Optionally, on Linux you could open the file manager using xdg-open if desired:
+    # subprocess.Popen(["xdg-open", os.path.dirname(outfile)])
 
-config_frame = ttk.LabelFrame(frame, text="Configuration")
-config_frame.grid(row=2, column=0, padx=20, pady=10)
-
-model_label = ttk.Label(config_frame, text="Whisper Model")
-model_label.grid(row=0, column=0)
-model_variable = tkinter.StringVar(window)
-model_variable.set("small")
-model_combobox = ttk.Combobox(config_frame, values=["small", "medium", "large"], textvariable=model_variable)
-model_combobox.grid(row=1, column=0)
-
-split_gap_label = ttk.Label(config_frame, text="Split silence (s)")
-split_gap_label.grid(row=0, column=1)
-split_gap_variable = tkinter.StringVar(window)
-split_gap_variable.set("0.5")
-split_gap_spinbox = ttk.Spinbox(config_frame, from_=0, to=5, increment=0.1, textvariable=split_gap_variable)
-split_gap_spinbox.grid(row=1, column=1)
-
-split_length_label = ttk.Label(config_frame, text="Split length (chars)")
-split_length_label.grid(row=0, column=2)
-split_length_variable = tkinter.StringVar(window)
-split_length_variable.set("20")
-split_length_spinbox = ttk.Spinbox(config_frame, from_=0, to=100, increment=1, textvariable=split_length_variable)
-split_length_spinbox.grid(row=1, column=2)
-
-for widget in config_frame.winfo_children():
-    widget.grid_configure(padx=10, pady=10)
-
-feedback_variable = tkinter.StringVar(window)
-feedback_label = ttk.Label(frame, textvariable=feedback_variable)
-feedback_label.grid(row=3, column=0, sticky="news", padx=20)
-start_button = ttk.Button(frame, text="Transcribe to XML", command=file_save, state=DISABLED)
-start_button.grid(row=4, column=0, sticky="news", padx=20, pady=10)
-
-sv_ttk.set_theme("dark")
-
-log.progress("Starting GUI")
-window.mainloop()
+if __name__ == "__main__":
+    main()
