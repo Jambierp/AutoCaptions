@@ -7,7 +7,7 @@ import subprocess
 
 import premiere_convert
 from transcribe import transcribe_to_srt
-from log import console, log  # assuming these provide console logging
+from pannel import console, log  # assuming these provide console logging
 
 def prompt_input_file():
     """Prompt the user for an input file and verify it exists."""

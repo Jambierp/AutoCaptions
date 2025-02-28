@@ -3,7 +3,7 @@ import os, sys
 import torch, gc
 import json
 from stable_whisper import load_faster_whisper, WhisperResult
-from log import log, console
+from pannel import log, console
 
 DIR = sys.path[0]
 
